@@ -17,48 +17,60 @@ define('METADATA_CONTAINER', 'metadata');
 define('SAS_TOKEN', 'sv=2024-11-04&ss=b&srt=co&sp=rwdlactfx&se=2027-01-11T08:43:29Z&st=2026-01-11T00:28:29Z&spr=https&sig=uXXyKqLml7g2mgRhQBFJbQjzRCfml7Mk9eyyjpWGL3w%3D');
 define('BLOB_SERVICE_URL', 'https://' . STORAGE_ACCOUNT . '.blob.core.windows.net');
 
-// Router
+// Get the request path and clean it
 $request_uri = $_SERVER['REQUEST_URI'];
 $request_method = $_SERVER['REQUEST_METHOD'];
 
-// Remove query string
+// Remove query string and base path
 $path = parse_url($request_uri, PHP_URL_PATH);
-$path = str_replace('cloudnativeapp-awd0frdxbkb6ghc5.norwayeast-01.azurewebsites.net/api', '', $path);
+
+// Remove /api prefix if present
+$path = preg_replace('#^/api#', '', $path);
+
+// Log for debugging
+error_log("Request: $request_method $path");
 
 // Route handling
-switch (true) {
-    case $path === '/login' && $request_method === 'POST':
-        handleLogin();
-        break;
-    
-    case $path === '/photos' && $request_method === 'GET':
-        getPhotos();
-        break;
-    
-    case $path === '/photos' && $request_method === 'POST':
-        uploadPhoto();
-        break;
-    
-    case preg_match('/^\/photos\/(.+)$/', $path, $matches) && $request_method === 'DELETE':
-        deletePhoto($matches[1]);
-        break;
-    
-    case preg_match('/^\/photos\/(.+)\/like$/', $path, $matches) && $request_method === 'POST':
-        likePhoto($matches[1]);
-        break;
-    
-    case preg_match('/^\/photos\/(.+)\/rate$/', $path, $matches) && $request_method === 'POST':
-        ratePhoto($matches[1]);
-        break;
-    
-    case preg_match('/^\/photos\/(.+)\/comments$/', $path, $matches) && $request_method === 'POST':
-        addComment($matches[1]);
-        break;
-    
-    default:
-        http_response_code(404);
-        echo json_encode(['error' => 'Endpoint not found']);
-        break;
+if ($path === '/login' && $request_method === 'POST') {
+    handleLogin();
+} 
+elseif ($path === '/photos' && $request_method === 'GET') {
+    getPhotos();
+} 
+elseif ($path === '/photos' && $request_method === 'POST') {
+    uploadPhoto();
+} 
+elseif (preg_match('#^/photos/([^/]+)$#', $path, $matches) && $request_method === 'DELETE') {
+    deletePhoto($matches[1]);
+} 
+elseif (preg_match('#^/photos/([^/]+)/like$#', $path, $matches) && $request_method === 'POST') {
+    likePhoto($matches[1]);
+} 
+elseif (preg_match('#^/photos/([^/]+)/rate$#', $path, $matches) && $request_method === 'POST') {
+    ratePhoto($matches[1]);
+} 
+elseif (preg_match('#^/photos/([^/]+)/comments$#', $path, $matches) && $request_method === 'POST') {
+    addComment($matches[1]);
+} 
+else {
+    http_response_code(404);
+    echo json_encode([
+        'error' => 'Endpoint not found',
+        'path' => $path,
+        'method' => $request_method,
+        'debug' => [
+            'request_uri' => $request_uri,
+            'available_endpoints' => [
+                'POST /login',
+                'GET /photos',
+                'POST /photos',
+                'DELETE /photos/{id}',
+                'POST /photos/{id}/like',
+                'POST /photos/{id}/rate',
+                'POST /photos/{id}/comments'
+            ]
+        ]
+    ]);
 }
 
 // ============================================
@@ -67,7 +79,7 @@ switch (true) {
 
 function handleLogin() {
     $data = json_decode(file_get_contents('php://input'), true);
-    $username = $data['username'] ?? 'Guest';
+    $username = $data['username'] ?? 'Guest' . rand(100, 999);
     $role = $data['role'] ?? 'consumer';
     
     $user = [
@@ -99,22 +111,24 @@ function getPhotos() {
     if ($httpCode === 200) {
         $xml = simplexml_load_string($response);
         
-        foreach ($xml->Blobs->Blob as $blob) {
-            $blobName = (string)$blob->Name;
-            
-            if (strpos($blobName, '.json') !== false) {
-                // Get blob content
-                $blobUrl = BLOB_SERVICE_URL . '/' . METADATA_CONTAINER . '/' . $blobName . '?' . SAS_TOKEN;
+        if ($xml && isset($xml->Blobs->Blob)) {
+            foreach ($xml->Blobs->Blob as $blob) {
+                $blobName = (string)$blob->Name;
                 
-                $ch = curl_init($blobUrl);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                $blobContent = curl_exec($ch);
-                curl_close($ch);
-                
-                if ($blobContent) {
-                    $photo = json_decode($blobContent, true);
-                    if ($photo) {
-                        $photos[] = $photo;
+                if (strpos($blobName, '.json') !== false) {
+                    // Get blob content
+                    $blobUrl = BLOB_SERVICE_URL . '/' . METADATA_CONTAINER . '/' . $blobName . '?' . SAS_TOKEN;
+                    
+                    $ch = curl_init($blobUrl);
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    $blobContent = curl_exec($ch);
+                    curl_close($ch);
+                    
+                    if ($blobContent) {
+                        $photo = json_decode($blobContent, true);
+                        if ($photo) {
+                            $photos[] = $photo;
+                        }
                     }
                 }
             }
@@ -137,11 +151,11 @@ function uploadPhoto() {
     $location = $data['location'] ?? '';
     $tags = $data['tags'] ?? '';
     $imageData = $data['imageData'] ?? '';
-    $fileName = $data['fileName'] ?? '';
+    $fileName = $data['fileName'] ?? 'image.jpg';
     
-    if (empty($title) || empty($imageData) || empty($fileName)) {
+    if (empty($title) || empty($imageData)) {
         http_response_code(400);
-        echo json_encode(['error' => 'Title, imageData, and fileName required']);
+        echo json_encode(['error' => 'Title and imageData required']);
         return;
     }
     
@@ -154,7 +168,7 @@ function uploadPhoto() {
         $username = $parts[0] ?? 'Anonymous';
     }
     
-    $photoId = (string)time();
+    $photoId = (string)time() . rand(100, 999);
     $blobName = $photoId . '-' . preg_replace('/[^a-zA-Z0-9.-]/', '_', $fileName);
     
     // Decode base64 image
@@ -189,7 +203,7 @@ function uploadPhoto() {
     
     if ($httpCode !== 201) {
         http_response_code(500);
-        echo json_encode(['error' => 'Failed to upload image']);
+        echo json_encode(['error' => 'Failed to upload image to blob storage', 'httpCode' => $httpCode]);
         return;
     }
     
