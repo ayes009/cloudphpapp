@@ -23,7 +23,7 @@ $request_method = $_SERVER['REQUEST_METHOD'];
 
 // Remove query string
 $path = parse_url($request_uri, PHP_URL_PATH);
-$path = str_replace('/api', '', $path);
+$path = str_replace('cloudnativeapp-awd0frdxbkb6ghc5.norwayeast-01.azurewebsites.net/api', '', $path);
 
 // Route handling
 switch (true) {
