@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhotoShare - Cloud Platform</title>
+    <title>PhotoShare - Cloud Native Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #000000; }
@@ -14,84 +14,190 @@
     <div id="app"></div>
 
     <script>
-        const API_BASE_URL = 'cloudnativeapp-awd0frdxbkb6ghc5.norwayeast-01.azurewebsites.net/api';
+        // API Configuration - uses same domain
+        const API_BASE_URL = '/api';
         
+        // Global state
         let currentUser = null;
-        let currentView = 'login';
+        let currentView = 'welcome';
         let currentTab = 'feed';
         let searchTerm = '';
         let photos = [];
-        let showComments = {};
         let userRatings = {};
 
+        // API Service
         const api = {
             async request(endpoint, method = 'GET', body = null) {
-                const options = {
-                    method,
-                    headers: { 'Content-Type': 'application/json' }
-                };
-                if (currentUser?.token) {
-                    options.headers['Authorization'] = `Bearer ${currentUser.token}`;
+                try {
+                    const options = {
+                        method,
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    };
+
+                    if (currentUser && currentUser.token) {
+                        options.headers['Authorization'] = `Bearer ${currentUser.token}`;
+                    }
+
+                    if (body && method !== 'GET') {
+                        options.body = JSON.stringify(body);
+                    }
+
+                    console.log(`API Call: ${method} ${API_BASE_URL}${endpoint}`);
+                    const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                    }
+                    
+                    return await response.json();
+                } catch (error) {
+                    console.error('API Error:', error);
+                    throw error;
                 }
-                if (body && method !== 'GET') {
-                    options.body = JSON.stringify(body);
-                }
-                const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                return await response.json();
             },
 
             async login(username, role) {
                 return await this.request('/login', 'POST', { username, role });
             },
+
             async getPhotos() {
                 return await this.request('/photos', 'GET');
             },
+
             async uploadPhoto(photoData) {
                 return await this.request('/photos', 'POST', photoData);
             },
+
             async deletePhoto(photoId) {
                 return await this.request(`/photos/${photoId}`, 'DELETE');
             },
+
             async likePhoto(photoId) {
                 return await this.request(`/photos/${photoId}/like`, 'POST');
             },
-            async commentPhoto(photoId, comment) {
-                return await this.request(`/photos/${photoId}/comments`, 'POST', { text: comment });
-            },
+
             async ratePhoto(photoId, rating) {
                 return await this.request(`/photos/${photoId}/rate`, 'POST', { rating });
             }
         };
 
-        function render() {
-            const app = document.getElementById('app');
-            app.innerHTML = currentView === 'login' ? renderLogin() : renderMain();
+        // Initialize
+        async function init() {
+            render();
+            attachEventListeners();
         }
 
-        function renderLogin() {
+        function attachEventListeners() {
+            const app = document.getElementById('app');
+            
+            app.addEventListener('click', async (e) => {
+                const target = e.target;
+                
+                if (target.dataset.role) {
+                    e.preventDefault();
+                    await selectRole(target.dataset.role);
+                }
+                
+                if (target.id === 'backBtn') {
+                    e.preventDefault();
+                    backToWelcome();
+                }
+                
+                if (target.dataset.tab) {
+                    e.preventDefault();
+                    setTab(target.dataset.tab);
+                }
+                
+                if (target.dataset.delete) {
+                    e.preventDefault();
+                    await handleDelete(target.dataset.delete);
+                }
+                
+                if (target.dataset.like) {
+                    e.preventDefault();
+                    await handleLike(target.dataset.like);
+                }
+                
+                if (target.dataset.rate) {
+                    e.preventDefault();
+                    await handleRate(target.dataset.rate);
+                }
+                
+                if (target.id === 'uploadBtn') {
+                    e.preventDefault();
+                    await handleUpload();
+                }
+            });
+            
+            app.addEventListener('change', (e) => {
+                if (e.target.id === 'fileInput') {
+                    handleFileSelect(e);
+                }
+            });
+            
+            app.addEventListener('input', (e) => {
+                if (e.target.id === 'searchInput') {
+                    handleSearch(e);
+                }
+            });
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            if (currentView === 'welcome') {
+                app.innerHTML = renderWelcome();
+            } else {
+                app.innerHTML = renderMain();
+            }
+        }
+
+        function renderWelcome() {
             return `
                 <div class="min-h-screen gradient-bg flex items-center justify-center p-4">
-                    <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-2xl p-8 max-w-md w-full">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-2xl p-8 max-w-2xl w-full">
                         <div class="text-center mb-8">
                             <div class="mb-6">
-                                <svg class="w-24 h-24 mx-auto" viewBox="0 0 100 100">
+                                <svg class="w-32 h-32 mx-auto" viewBox="0 0 100 100" fill="none">
                                     <circle cx="50" cy="50" r="48" fill="#9333EA" opacity="0.1"/>
+                                    <circle cx="50" cy="50" r="40" fill="#9333EA" opacity="0.2"/>
                                     <path d="M50 15L35 25V45L50 55L65 45V25L50 15Z" fill="#9333EA"/>
                                     <circle cx="50" cy="45" r="12" fill="#FFFFFF"/>
+                                    <circle cx="50" cy="45" r="8" fill="#000000"/>
+                                    <path d="M30 65Q50 75 70 65" stroke="#9333EA" stroke-width="3" stroke-linecap="round"/>
                                 </svg>
                             </div>
-                            <h1 class="text-4xl font-bold text-white mb-2">PhotoShare</h1>
-                            <p class="text-gray-400">Cloud-Native Platform</p>
-                            <p class="text-purple-400 text-sm mt-2">No login required!</p>
+                            <h1 class="text-5xl font-bold text-white mb-3">PhotoShare</h1>
+                            <p class="text-xl text-gray-400 mb-8">Cloud-Native Media Platform</p>
+                            <p class="text-gray-300 mb-8">Choose how you'd like to explore PhotoShare</p>
                         </div>
-                        <div class="space-y-4">
-                            <input type="text" id="username" placeholder="Your Name (Optional)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
-                            <select id="role" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
-                                <option value="consumer">Consumer - Browse & Interact</option>
-                                <option value="creator">Creator - Upload Photos</option>
-                            </select>
-                            <button onclick="handleLogin()" class="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 font-semibold">Enter PhotoShare</button>
+                        
+                        <div class="mb-6">
+                            <input type="text" id="usernameInput" placeholder="Enter your name (optional)" 
+                                class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none">
+                        </div>
+                        
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <button data-role="creator" class="group bg-gradient-to-br from-purple-600 to-purple-800 hover:from-purple-700 hover:to-purple-900 p-8 rounded-xl transition-all transform hover:scale-105 border-2 border-purple-500">
+                                <div class="text-6xl mb-4">📸</div>
+                                <h3 class="text-2xl font-bold text-white mb-2">Creator</h3>
+                                <p class="text-purple-200 text-sm">Upload and manage your photos</p>
+                            </button>
+                            
+                            <button data-role="consumer" class="group bg-gradient-to-br from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900 p-8 rounded-xl transition-all transform hover:scale-105 border-2 border-blue-500">
+                                <div class="text-6xl mb-4">🔍</div>
+                                <h3 class="text-2xl font-bold text-white mb-2">Consumer</h3>
+                                <p class="text-blue-200 text-sm">Browse and interact with photos</p>
+                            </button>
+                        </div>
+                        
+                        <div class="mt-8 p-4 bg-gray-800 rounded-lg border border-gray-700">
+                            <p class="text-gray-400 text-sm text-center">
+                                <span class="text-purple-400 font-semibold">Creators</span> can upload, manage, and delete their photos<br>
+                                <span class="text-blue-400 font-semibold">Consumers</span> can browse, like, and rate all photos
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -115,17 +221,25 @@
                     <div class="max-w-7xl mx-auto px-4 py-4">
                         <div class="flex justify-between items-center">
                             <div class="flex items-center gap-3">
-                                <svg class="w-10 h-10" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="#9333EA" opacity="0.2"/><path d="M50 20L35 30V50L50 60L65 50V30L50 20Z" fill="#9333EA"/></svg>
-                                <div><h1 class="text-2xl font-bold text-white">PhotoShare</h1><p class="text-xs text-purple-400">${currentUser.role.toUpperCase()}</p></div>
+                                <svg class="w-10 h-10" viewBox="0 0 100 100" fill="none">
+                                    <circle cx="50" cy="50" r="40" fill="#9333EA" opacity="0.2"/>
+                                    <path d="M50 20L35 30V50L50 60L65 50V30L50 20Z" fill="#9333EA"/>
+                                    <circle cx="50" cy="50" r="12" fill="#FFFFFF"/>
+                                </svg>
+                                <div>
+                                    <h1 class="text-2xl font-bold text-white">PhotoShare</h1>
+                                    <p class="text-xs ${currentUser.role === 'creator' ? 'text-purple-400' : 'text-blue-400'}">${currentUser.role.toUpperCase()} MODE</p>
+                                </div>
                             </div>
                             <div class="flex items-center gap-4">
                                 <span class="font-medium text-gray-300">@${currentUser.username}</span>
-                                <button onclick="handleLogout()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg">Logout</button>
+                                <button id="backBtn" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors">Change Role</button>
                             </div>
                         </div>
-                        ${currentUser.role === 'creator' ? `<div class="flex gap-2 mt-4 border-t border-gray-800 pt-4">
-                            <button onclick="setTab('feed')" class="px-4 py-2 rounded-lg ${currentTab==='feed'?'bg-purple-600 text-white':'bg-gray-800 text-gray-300'}">My Photos</button>
-                            <button onclick="setTab('upload')" class="px-4 py-2 rounded-lg ${currentTab==='upload'?'bg-purple-600 text-white':'bg-gray-800 text-gray-300'}">Upload</button>
+                        ${currentUser.role === 'creator' ? `
+                        <div class="flex gap-2 mt-4 border-t border-gray-800 pt-4">
+                            <button data-tab="feed" class="px-4 py-2 rounded-lg transition-colors ${currentTab==='feed'?'bg-purple-600 text-white':'bg-gray-800 text-gray-300 hover:bg-gray-700'}">All Photos</button>
+                            <button data-tab="upload" class="px-4 py-2 rounded-lg transition-colors ${currentTab==='upload'?'bg-purple-600 text-white':'bg-gray-800 text-gray-300 hover:bg-gray-700'}">Upload New</button>
                         </div>` : ''}
                     </div>
                 </header>
@@ -135,82 +249,120 @@
         function renderCreatorView() {
             if (currentTab === 'upload') {
                 return `
-                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-2xl mx-auto">
-                        <h2 class="text-2xl font-bold text-white mb-6">Upload Photo</h2>
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
+                        <h2 class="text-2xl font-bold text-white mb-6">📤 Upload New Photo</h2>
                         <div class="space-y-4">
-                            <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-700 rounded-lg cursor-pointer bg-gray-800">
-                                <p class="text-sm text-gray-400">Click to upload image</p>
-                                <input id="fileInput" type="file" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
-                            </label>
-                            <img id="preview" class="mt-3 w-full h-40 object-cover rounded-lg hidden">
-                            <input type="text" id="title" placeholder="Title *" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
-                            <textarea id="caption" placeholder="Caption" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg" rows="3"></textarea>
-                            <input type="text" id="location" placeholder="Location" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
-                            <input type="text" id="tags" placeholder="Tags" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
-                            <button onclick="handleUpload()" class="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 font-semibold">Upload Photo</button>
+                            <div>
+                                <label class="block font-medium text-gray-300 mb-2">Select Image</label>
+                                <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-700 rounded-lg cursor-pointer bg-gray-800 hover:bg-gray-750">
+                                    <div class="text-center">
+                                        <p class="text-sm text-gray-400">Click to upload image</p>
+                                        <p class="text-xs text-gray-500 mt-1">PNG, JPG, GIF up to 10MB</p>
+                                    </div>
+                                    <input id="fileInput" type="file" accept="image/*" class="hidden">
+                                </label>
+                                <img id="preview" class="mt-3 w-full h-48 object-cover rounded-lg border border-gray-700 hidden">
+                            </div>
+                            <input type="text" id="title" placeholder="Photo Title *" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none">
+                            <textarea id="caption" placeholder="Caption (optional)" rows="3" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"></textarea>
+                            <input type="text" id="location" placeholder="Location (optional)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none">
+                            <input type="text" id="tags" placeholder="Tags: nature, sunset, travel" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none">
+                            <button id="uploadBtn" class="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 font-semibold transition-colors">Upload Photo</button>
                         </div>
                     </div>
                 `;
             }
-            return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${photos.map(p => renderPhotoCard(p, false)).join('')}</div>`;
+            const myPhotos = photos.filter(p => p.creatorName === currentUser.username);
+            return `
+                <div>
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-white">My Photos (${myPhotos.length})</h2>
+                        <button data-tab="upload" class="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition-colors">+ Upload Photo</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        ${myPhotos.length > 0 ? myPhotos.map(p => renderPhotoCard(p, false)).join('') : '<p class="text-gray-400 col-span-3 text-center py-12">No photos yet. Upload your first photo!</p>'}
+                    </div>
+                </div>
+            `;
         }
 
         function renderConsumerView() {
             const filtered = photos.filter(p => 
                 p.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                (p.tags||'').toLowerCase().includes(searchTerm.toLowerCase())
+                (p.tags && p.tags.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (p.location && p.location.toLowerCase().includes(searchTerm.toLowerCase()))
             );
             return `
-                <div class="mb-6">
-                    <input type="text" value="${searchTerm}" oninput="handleSearch(event)" placeholder="Search photos..." class="w-full px-4 py-3 bg-gray-900 border border-gray-800 text-white rounded-lg">
+                <div>
+                    <div class="mb-6">
+                        <input type="text" id="searchInput" value="${searchTerm}" placeholder="🔍 Search photos by title, tags, or location..." class="w-full px-4 py-3 bg-gray-900 border border-gray-800 text-white rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none">
+                    </div>
+                    <div class="mb-4">
+                        <h2 class="text-xl text-gray-400">Found ${filtered.length} photo${filtered.length !== 1 ? 's' : ''}</h2>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        ${filtered.length > 0 ? filtered.map(p => renderPhotoCard(p, true)).join('') : '<p class="text-gray-400 col-span-3 text-center py-12">No photos found.</p>'}
+                    </div>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${filtered.map(p => renderPhotoCard(p, true)).join('')}</div>
             `;
         }
 
         function renderPhotoCard(p, isConsumer) {
-            const canDelete = currentUser?.role === 'creator' && p.creatorName === currentUser.username;
+            const canDelete = currentUser && currentUser.role === 'creator' && p.creatorName === currentUser.username;
             return `
-                <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+                <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-lg overflow-hidden hover:border-${isConsumer ? 'blue' : 'purple'}-600 transition-colors">
                     <div class="relative">
-                        <img src="${p.url}" alt="${p.title}" class="w-full h-64 object-cover">
-                        ${canDelete ? `<button onclick="handleDelete('${p.id}')" class="absolute top-2 right-2 bg-red-600 text-white p-2 rounded-lg">Delete</button>` : ''}
+                        <img src="${p.url}" alt="${p.title}" class="w-full h-64 object-cover" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27400%27 height=%27300%27%3E%3Crect fill=%27%23333%27 width=%27400%27 height=%27300%27/%3E%3Ctext fill=%27%23666%27 font-family=%27Arial%27 font-size=%2720%27 x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27%3EImage%3C/text%3E%3C/svg%3E'">
+                        ${canDelete ? `<button data-delete="${p.id}" class="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-lg text-sm font-medium shadow-lg">🗑️ Delete</button>` : ''}
                     </div>
                     <div class="p-4">
                         <h3 class="font-bold text-lg text-white">${p.title}</h3>
-                        <p class="text-sm text-gray-400">@${p.creatorName}</p>
-                        ${p.caption ? `<p class="text-gray-300 mt-2">${p.caption}</p>` : ''}
+                        <p class="text-sm text-gray-400 mb-2">by @${p.creatorName}</p>
+                        ${p.caption ? `<p class="text-gray-300 mt-2 text-sm">${p.caption}</p>` : ''}
+                        ${p.location ? `<p class="text-sm text-gray-400 mt-2">📍 ${p.location}</p>` : ''}
+                        ${p.tags ? `<div class="flex flex-wrap gap-1 mt-2">${p.tags.split(',').map(tag => `<span class="text-xs px-2 py-1 bg-purple-900/50 text-purple-300 rounded">#${tag.trim()}</span>`).join('')}</div>` : ''}
                         ${isConsumer ? `
                         <div class="flex gap-4 pt-3 border-t border-gray-800 mt-3">
-                            <button onclick="handleLike('${p.id}')" class="text-gray-400">❤️ ${p.likes}</button>
-                            ${userRatings[p.id] ? `<span class="text-green-500 text-sm">Rated: ${userRatings[p.id]}⭐</span>` : 
-                            `<button onclick="handleRate('${p.id}', 5)" class="text-gray-600">⭐ Rate</button>`}
-                        </div>` : ''}
+                            <button data-like="${p.id}" class="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
+                                ❤️ <span class="text-sm">${p.likes}</span>
+                            </button>
+                            ${userRatings[p.id] ? 
+                                `<span class="flex items-center gap-1 text-yellow-500 text-sm">⭐ Rated ${userRatings[p.id]}/5</span>` : 
+                                `<button data-rate="${p.id}" class="flex items-center gap-1 text-gray-400 hover:text-yellow-500 transition-colors text-sm">⭐ Rate</button>`
+                            }
+                            ${p.ratingCount > 0 ? `<span class="text-gray-500 text-sm">⭐ ${parseFloat(p.rating).toFixed(1)} (${p.ratingCount})</span>` : ''}
+                        </div>` : `
+                        <div class="flex gap-4 pt-3 border-t border-gray-800 mt-3 text-sm text-gray-400">
+                            <span class="flex items-center gap-1">❤️ ${p.likes}</span>
+                            ${p.ratingCount > 0 ? `<span class="flex items-center gap-1">⭐ ${parseFloat(p.rating).toFixed(1)} (${p.ratingCount})</span>` : ''}
+                        </div>`}
                     </div>
                 </div>
             `;
         }
 
-        async function handleLogin() {
-            const username = document.getElementById('username').value || 'Guest';
-            const role = document.getElementById('role').value;
+        // Event Handlers
+        async function selectRole(role) {
+            const usernameInput = document.getElementById('usernameInput');
+            const username = usernameInput ? usernameInput.value.trim() || 'User' + Math.floor(Math.random() * 1000) : 'User' + Math.floor(Math.random() * 1000);
+            
             try {
-                const result = await api.login(username, role);
-                currentUser = result.user;
+                const response = await api.login(username, role);
+                currentUser = response.user;
                 currentView = 'main';
                 await loadPhotos();
                 render();
-            } catch (e) {
-                currentUser = { id: Date.now(), username, role, token: 'offline' };
-                currentView = 'main';
-                render();
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Login failed: ' + error.message);
             }
         }
 
-        function handleLogout() {
+        function backToWelcome() {
             currentUser = null;
-            currentView = 'login';
-            photos = [];
+            currentView = 'welcome';
+            currentTab = 'feed';
+            searchTerm = '';
             render();
         }
 
@@ -240,41 +392,58 @@
         async function handleUpload() {
             const title = document.getElementById('title').value;
             if (!title || !selectedFile) {
-                alert('Please select an image and enter a title');
+                alert('⚠️ Please select an image and enter a title');
                 return;
             }
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    const photoData = {
-                        title,
-                        caption: document.getElementById('caption').value,
-                        location: document.getElementById('location').value,
-                        tags: document.getElementById('tags').value,
-                        imageData: e.target.result,
-                        fileName: selectedFile.name
-                    };
-                    const newPhoto = await api.uploadPhoto(photoData);
-                    photos.unshift(newPhoto);
-                    currentTab = 'feed';
-                    selectedFile = null;
-                    render();
-                    alert('Photo uploaded!');
-                } catch (error) {
-                    alert('Upload failed: ' + error.message);
-                }
-            };
-            reader.readAsDataURL(selectedFile);
+
+            const uploadBtn = document.getElementById('uploadBtn');
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = '⏳ Uploading...';
+
+            try {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        const photoData = {
+                            title: title.trim(),
+                            caption: document.getElementById('caption').value || '',
+                            location: document.getElementById('location').value || '',
+                            tags: document.getElementById('tags').value || '',
+                            imageData: e.target.result,
+                            fileName: selectedFile.name
+                        };
+
+                        const newPhoto = await api.uploadPhoto(photoData);
+                        photos.unshift(newPhoto);
+                        currentTab = 'feed';
+                        selectedFile = null;
+                        render();
+                        alert('✅ Photo uploaded successfully!');
+                    } catch (error) {
+                        console.error('Upload error:', error);
+                        alert('❌ Upload failed: ' + error.message);
+                        uploadBtn.disabled = false;
+                        uploadBtn.textContent = 'Upload Photo';
+                    }
+                };
+                reader.readAsDataURL(selectedFile);
+            } catch (error) {
+                alert('❌ Upload failed: ' + error.message);
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload Photo';
+            }
         }
 
         async function handleDelete(photoId) {
-            if (!confirm('Delete this photo?')) return;
+            if (!confirm('Are you sure you want to delete this photo?')) return;
+            
             try {
                 await api.deletePhoto(photoId);
                 photos = photos.filter(p => p.id !== photoId);
                 render();
+                alert('✅ Photo deleted successfully!');
             } catch (error) {
-                alert('Delete failed');
+                alert('❌ Delete failed: ' + error.message);
             }
         }
 
@@ -284,19 +453,37 @@
                 const photo = photos.find(p => p.id === photoId);
                 if (photo) photo.likes++;
                 render();
-            } catch (error) {}
+            } catch (error) {
+                alert('❌ Like failed: ' + error.message);
+            }
         }
 
-        async function handleRate(photoId, rating) {
+        async function handleRate(photoId) {
             if (userRatings[photoId]) {
-                alert('Already rated!');
+                alert('You have already rated this photo!');
                 return;
             }
+
+            const rating = prompt('Rate this photo (1-5 stars):');
+            if (!rating || rating < 1 || rating > 5) {
+                alert('Please enter a rating between 1 and 5');
+                return;
+            }
+
             try {
-                await api.ratePhoto(photoId, rating);
-                userRatings[photoId] = rating;
+                await api.ratePhoto(photoId, parseInt(rating));
+                userRatings[photoId] = parseInt(rating);
+                const photo = photos.find(p => p.id === photoId);
+                if (photo) {
+                    const response = await api.ratePhoto(photoId, parseInt(rating));
+                    photo.rating = response.rating;
+                    photo.ratingCount = response.ratingCount;
+                }
                 render();
-            } catch (error) {}
+                alert('✅ Thank you for rating!');
+            } catch (error) {
+                alert('❌ Rating failed: ' + error.message);
+            }
         }
 
         async function loadPhotos() {
@@ -304,11 +491,14 @@
                 photos = await api.getPhotos();
                 render();
             } catch (error) {
-                console.error('Failed to load photos');
+                console.error('Failed to load photos:', error);
+                photos = [];
+                render();
             }
         }
 
-        render();
+        // Initialize app
+        init();
     </script>
 </body>
 </html>
