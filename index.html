@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhotoShare - Cloud Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #000000; }
+        .gradient-bg { background: linear-gradient(135deg, #1a1a1a 0%, #000000 100%); }
+    </style>
+</head>
+<body class="bg-black">
+    <div id="app"></div>
+
+    <script>
+        const API_BASE_URL = '/api';
+        
+        let currentUser = null;
+        let currentView = 'login';
+        let currentTab = 'feed';
+        let searchTerm = '';
+        let photos = [];
+        let showComments = {};
+        let userRatings = {};
+
+        const api = {
+            async request(endpoint, method = 'GET', body = null) {
+                const options = {
+                    method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                if (currentUser?.token) {
+                    options.headers['Authorization'] = `Bearer ${currentUser.token}`;
+                }
+                if (body && method !== 'GET') {
+                    options.body = JSON.stringify(body);
+                }
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return await response.json();
+            },
+
+            async login(username, role) {
+                return await this.request('/login', 'POST', { username, role });
+            },
+            async getPhotos() {
+                return await this.request('/photos', 'GET');
+            },
+            async uploadPhoto(photoData) {
+                return await this.request('/photos', 'POST', photoData);
+            },
+            async deletePhoto(photoId) {
+                return await this.request(`/photos/${photoId}`, 'DELETE');
+            },
+            async likePhoto(photoId) {
+                return await this.request(`/photos/${photoId}/like`, 'POST');
+            },
+            async commentPhoto(photoId, comment) {
+                return await this.request(`/photos/${photoId}/comments`, 'POST', { text: comment });
+            },
+            async ratePhoto(photoId, rating) {
+                return await this.request(`/photos/${photoId}/rate`, 'POST', { rating });
+            }
+        };
+
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = currentView === 'login' ? renderLogin() : renderMain();
+        }
+
+        function renderLogin() {
+            return `
+                <div class="min-h-screen gradient-bg flex items-center justify-center p-4">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-2xl p-8 max-w-md w-full">
+                        <div class="text-center mb-8">
+                            <div class="mb-6">
+                                <svg class="w-24 h-24 mx-auto" viewBox="0 0 100 100">
+                                    <circle cx="50" cy="50" r="48" fill="#9333EA" opacity="0.1"/>
+                                    <path d="M50 15L35 25V45L50 55L65 45V25L50 15Z" fill="#9333EA"/>
+                                    <circle cx="50" cy="45" r="12" fill="#FFFFFF"/>
+                                </svg>
+                            </div>
+                            <h1 class="text-4xl font-bold text-white mb-2">PhotoShare</h1>
+                            <p class="text-gray-400">Cloud-Native Platform</p>
+                            <p class="text-purple-400 text-sm mt-2">No login required!</p>
+                        </div>
+                        <div class="space-y-4">
+                            <input type="text" id="username" placeholder="Your Name (Optional)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
+                            <select id="role" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
+                                <option value="consumer">Consumer - Browse & Interact</option>
+                                <option value="creator">Creator - Upload Photos</option>
+                            </select>
+                            <button onclick="handleLogin()" class="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 font-semibold">Enter PhotoShare</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderMain() {
+            return `
+                <div class="min-h-screen bg-black">
+                    ${renderHeader()}
+                    <main class="max-w-7xl mx-auto px-4 py-8">
+                        ${currentUser.role === 'creator' ? renderCreatorView() : renderConsumerView()}
+                    </main>
+                </div>
+            `;
+        }
+
+        function renderHeader() {
+            return `
+                <header class="bg-gray-900 border-b border-gray-800 shadow-lg sticky top-0 z-10">
+                    <div class="max-w-7xl mx-auto px-4 py-4">
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-10 h-10" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="#9333EA" opacity="0.2"/><path d="M50 20L35 30V50L50 60L65 50V30L50 20Z" fill="#9333EA"/></svg>
+                                <div><h1 class="text-2xl font-bold text-white">PhotoShare</h1><p class="text-xs text-purple-400">${currentUser.role.toUpperCase()}</p></div>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <span class="font-medium text-gray-300">@${currentUser.username}</span>
+                                <button onclick="handleLogout()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg">Logout</button>
+                            </div>
+                        </div>
+                        ${currentUser.role === 'creator' ? `<div class="flex gap-2 mt-4 border-t border-gray-800 pt-4">
+                            <button onclick="setTab('feed')" class="px-4 py-2 rounded-lg ${currentTab==='feed'?'bg-purple-600 text-white':'bg-gray-800 text-gray-300'}">My Photos</button>
+                            <button onclick="setTab('upload')" class="px-4 py-2 rounded-lg ${currentTab==='upload'?'bg-purple-600 text-white':'bg-gray-800 text-gray-300'}">Upload</button>
+                        </div>` : ''}
+                    </div>
+                </header>
+            `;
+        }
+
+        function renderCreatorView() {
+            if (currentTab === 'upload') {
+                return `
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-2xl mx-auto">
+                        <h2 class="text-2xl font-bold text-white mb-6">Upload Photo</h2>
+                        <div class="space-y-4">
+                            <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-700 rounded-lg cursor-pointer bg-gray-800">
+                                <p class="text-sm text-gray-400">Click to upload image</p>
+                                <input id="fileInput" type="file" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
+                            </label>
+                            <img id="preview" class="mt-3 w-full h-40 object-cover rounded-lg hidden">
+                            <input type="text" id="title" placeholder="Title *" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
+                            <textarea id="caption" placeholder="Caption" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg" rows="3"></textarea>
+                            <input type="text" id="location" placeholder="Location" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
+                            <input type="text" id="tags" placeholder="Tags" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg">
+                            <button onclick="handleUpload()" class="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 font-semibold">Upload Photo</button>
+                        </div>
+                    </div>
+                `;
+            }
+            return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${photos.map(p => renderPhotoCard(p, false)).join('')}</div>`;
+        }
+
+        function renderConsumerView() {
+            const filtered = photos.filter(p => 
+                p.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                (p.tags||'').toLowerCase().includes(searchTerm.toLowerCase())
+            );
+            return `
+                <div class="mb-6">
+                    <input type="text" value="${searchTerm}" oninput="handleSearch(event)" placeholder="Search photos..." class="w-full px-4 py-3 bg-gray-900 border border-gray-800 text-white rounded-lg">
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${filtered.map(p => renderPhotoCard(p, true)).join('')}</div>
+            `;
+        }
+
+        function renderPhotoCard(p, isConsumer) {
+            const canDelete = currentUser?.role === 'creator' && p.creatorName === currentUser.username;
+            return `
+                <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+                    <div class="relative">
+                        <img src="${p.url}" alt="${p.title}" class="w-full h-64 object-cover">
+                        ${canDelete ? `<button onclick="handleDelete('${p.id}')" class="absolute top-2 right-2 bg-red-600 text-white p-2 rounded-lg">Delete</button>` : ''}
+                    </div>
+                    <div class="p-4">
+                        <h3 class="font-bold text-lg text-white">${p.title}</h3>
+                        <p class="text-sm text-gray-400">@${p.creatorName}</p>
+                        ${p.caption ? `<p class="text-gray-300 mt-2">${p.caption}</p>` : ''}
+                        ${isConsumer ? `
+                        <div class="flex gap-4 pt-3 border-t border-gray-800 mt-3">
+                            <button onclick="handleLike('${p.id}')" class="text-gray-400">❤️ ${p.likes}</button>
+                            ${userRatings[p.id] ? `<span class="text-green-500 text-sm">Rated: ${userRatings[p.id]}⭐</span>` : 
+                            `<button onclick="handleRate('${p.id}', 5)" class="text-gray-600">⭐ Rate</button>`}
+                        </div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function handleLogin() {
+            const username = document.getElementById('username').value || 'Guest';
+            const role = document.getElementById('role').value;
+            try {
+                const result = await api.login(username, role);
+                currentUser = result.user;
+                currentView = 'main';
+                await loadPhotos();
+                render();
+            } catch (e) {
+                currentUser = { id: Date.now(), username, role, token: 'offline' };
+                currentView = 'main';
+                render();
+            }
+        }
+
+        function handleLogout() {
+            currentUser = null;
+            currentView = 'login';
+            photos = [];
+            render();
+        }
+
+        function setTab(tab) {
+            currentTab = tab;
+            render();
+        }
+
+        function handleSearch(event) {
+            searchTerm = event.target.value;
+            render();
+        }
+
+        let selectedFile = null;
+        function handleFileSelect(event) {
+            selectedFile = event.target.files[0];
+            if (selectedFile) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    document.getElementById('preview').src = e.target.result;
+                    document.getElementById('preview').classList.remove('hidden');
+                };
+                reader.readAsDataURL(selectedFile);
+            }
+        }
+
+        async function handleUpload() {
+            const title = document.getElementById('title').value;
+            if (!title || !selectedFile) {
+                alert('Please select an image and enter a title');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const photoData = {
+                        title,
+                        caption: document.getElementById('caption').value,
+                        location: document.getElementById('location').value,
+                        tags: document.getElementById('tags').value,
+                        imageData: e.target.result,
+                        fileName: selectedFile.name
+                    };
+                    const newPhoto = await api.uploadPhoto(photoData);
+                    photos.unshift(newPhoto);
+                    currentTab = 'feed';
+                    selectedFile = null;
+                    render();
+                    alert('Photo uploaded!');
+                } catch (error) {
+                    alert('Upload failed: ' + error.message);
+                }
+            };
+            reader.readAsDataURL(selectedFile);
+        }
+
+        async function handleDelete(photoId) {
+            if (!confirm('Delete this photo?')) return;
+            try {
+                await api.deletePhoto(photoId);
+                photos = photos.filter(p => p.id !== photoId);
+                render();
+            } catch (error) {
+                alert('Delete failed');
+            }
+        }
+
+        async function handleLike(photoId) {
+            try {
+                await api.likePhoto(photoId);
+                const photo = photos.find(p => p.id === photoId);
+                if (photo) photo.likes++;
+                render();
+            } catch (error) {}
+        }
+
+        async function handleRate(photoId, rating) {
+            if (userRatings[photoId]) {
+                alert('Already rated!');
+                return;
+            }
+            try {
+                await api.ratePhoto(photoId, rating);
+                userRatings[photoId] = rating;
+                render();
+            } catch (error) {}
+        }
+
+        async function loadPhotos() {
+            try {
+                photos = await api.getPhotos();
+                render();
+            } catch (error) {
+                console.error('Failed to load photos');
+            }
+        }
+
+        render();
+    </script>
+</body>
+</html>
